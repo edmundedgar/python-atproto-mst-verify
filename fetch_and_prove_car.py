@@ -48,8 +48,7 @@ if sys.argv[1].startswith('https://bsky.app'):
             html = response.read()
             result = re.search('<link rel="alternate" href="(at:\/\/did:plc:.*?\/app.bsky.feed.post\/.*?)"', str(html))
             if result is None:
-                print(html)
-                raise Exception("Could not find the at:// link in the URL you provided. Check the URL or pass an at:// URI instead.")
+                raise Exception("Could not find the at:// link in the URL you provided. Maybe posts aren't shown unless you're logged in? Check the URL or pass an at:// URI instead.")
 
             at_addr = result.group(1) 
 
@@ -69,10 +68,8 @@ output = {
     "did": did,
     "rkey": rkey,
     "content": None,
-    "dataNode": None,
-    "dataNodeHint": None,
-    "treeNodes": [],
-    "treeNodesHints": [],
+    "nodes": [],
+    "nodeHints": [],
     "commitNode": None,
     "r": None,
     "s": None
@@ -126,11 +123,14 @@ with open(car_file, mode="rb") as cf:
     for cid in car_file.blocks:
         b = car_file.blocks[cid] 
         if 'sig' in b:
+            # print(b)
             commit_node = b
             signature = b['sig']
             output['r'] = "0x"+signature[0:32].hex()
             output['s'] = "0x"+signature[32:64].hex()
+            # print("0x"+libipld.encode_dag_cbor(b).hex())
             del b['sig']
+            # print("0x"+libipld.encode_dag_cbor(b).hex())
             # Reencode the commit node with the signature stripped
             # This will be needed for verification
             output['commitNode'] = "0x"+libipld.encode_dag_cbor(b).hex()
@@ -141,6 +141,8 @@ with open(car_file, mode="rb") as cf:
 
             target_content = b
             output['content'] = "0x"+libipld.encode_dag_cbor(b).hex()
+            # print("text hash is " + hashlib.sha256(libipld.encode_dag_cbor(b)).hexdigest())
+            print(b)
         elif i == len(car_file.blocks)-1:
             data_node = b
         else:
@@ -171,8 +173,8 @@ with open(car_file, mode="rb") as cf:
             val = "0x"+entry['v'].hex()
             if val == "0x01711220" + prove_me:
                 is_found = True
-                output['dataNode'] = "0x"+libipld.encode_dag_cbor(data_node).hex()
-                output['dataNodeHint'] = vidx
+                output['nodes'].append("0x"+libipld.encode_dag_cbor(data_node).hex());
+                output['nodeHints'].append(vidx+1);
                 prove_me = hashlib.sha256(libipld.encode_dag_cbor(data_node)).hexdigest()
                 break
         vidx = vidx + 1
@@ -190,19 +192,19 @@ with open(car_file, mode="rb") as cf:
         tree_node_cid = hashlib.sha256(node_cbor).hexdigest()
         if tree_node['l'] is not None and "0x"+tree_node['l'].hex() == "0x01711220" + prove_me:
             prove_me = tree_node_cid
-            output['treeNodesHints'].append(0); # 0 for the l node
-            output['treeNodes'].append("0x"+node_cbor.hex());
+            output['nodeHints'].append(0); # 0 for the l node
+            output['nodes'].append("0x"+node_cbor.hex());
         elif 'e' in tree_node:
             is_found_in_tree = False
             eidx = 0
             for tree_node_entry in tree_node['e']:
-                eidx = eidx + 1
                 if 't' in tree_node_entry and tree_node_entry['t'] is not None:
                     if "0x"+tree_node_entry['t'].hex() == "0x01711220" + prove_me:
                         prove_me = tree_node_cid
                         is_found_in_tree = True
-                        output['treeNodesHints'].append(eidx+1); # e index + 1 for the t node
-                        output['treeNodes'].append("0x"+node_cbor.hex());
+                        output['nodeHints'].append(eidx+1); # e index + 1 for the t node
+                        output['nodes'].append("0x"+node_cbor.hex());
+                eidx = eidx + 1
             if not is_found_in_tree:
                 print("Could not find cid: " + prove_me)
                 print(repr(tree_node))
@@ -222,4 +224,4 @@ with open(car_file, mode="rb") as cf:
         raise Exception("Sig node did not sign off on the expected root hash")
 
 with open(out_file, 'w', encoding='utf-8') as f:
-    json.dump(output, f, indent=4)
+    json.dump(output, f, indent=4, sort_keys=True)
